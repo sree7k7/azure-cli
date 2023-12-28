@@ -1,0 +1,11 @@
+organization=sran0432
+project=contoso
+visibility=private
+
+if [[ $(az devops project show --project $project --query "name" | sed 's/[][ ", ]//g') != "$project" ]]; then
+    echo "creating ${project} project"
+    az devops project create --name $project --visibility $visibility --source-control git 
+else
+    echo "project: '${project}' already exits"
+fi
+

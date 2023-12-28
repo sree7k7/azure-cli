@@ -1,0 +1,85 @@
+#!/bin/bash
+# Create: RG, VNET (GatewaySubnet, SubnetA), VM, instal IIS
+ResourceGroup=contoso
+location=centralindia
+
+vnetName=CoreServices
+VnetCIDR=10.20.0.0/16  #change
+GatewaySubnetCIDR=10.20.3.0/24  #change
+SubnetCIDR=10.20.2.0/27  #change
+subnetname=subnet
+GatewaySubnet=GatewaySubnet
+
+VMname=$vnetName-vm
+username=demousr
+password=Password@123
+image=Win2022Datacenter 
+# image=UbuntuLTS
+AzureBastion=yes
+
+if [[ $(az group list --query "[?location==$location].name" | sed 's/[][", ]//g') = *"$ResourceGroup"* ]]; then
+    echo " is ResourceGroup: ${ResourceGroup} exits"
+else
+    echo "creating ${ResourceGroup} ResourceGroup"
+az group create --name $ResourceGroup --location $location
+fi
+
+# az group create --name $ResourceGroup --location $location
+
+if [[ $(az network vnet show -g $ResourceGroup --name $vnetName --query "name" | sed 's/[][", ]//g') = $vnetName ]]; then
+    echo "This ${vnetName} exits"
+else
+    echo "creating ${vnetName}"
+az network vnet create --name $vnetName --resource-group $ResourceGroup --address-prefixes $VnetCIDR
+fi
+
+if [[ $(az network vnet subnet show --name $subnetname --vnet-name $vnetName -g $ResourceGroup --query "name" | sed 's/[][", ]//g') = $subnetname ]]; then
+    echo "This ${subnetname} exits"
+else
+    echo "creating subnet"
+az network vnet subnet create -g $ResourceGroup --vnet-name $vnetName -n $subnetname --address-prefixes $SubnetCIDR
+fi
+
+if [[ $(az network vnet subnet show --name $GatewaySubnet --vnet-name $vnetName -g $ResourceGroup --query "name" | sed 's/[][", ]//g') = $GatewaySubnet ]]; then
+    echo "This ${GatewaySubnet} exits"
+else
+    echo "creating subnet"
+az network vnet subnet create -g $ResourceGroup --vnet-name $vnetName -n $GatewaySubnet --address-prefixes $GatewaySubnetCIDR
+fi
+#Create VM
+if [[ $(az vm show -g $ResourceGroup -n $VMname --query "*.computerName" | sed 's/[][", ]//g') = *"$VMname"* ]]; then
+    echo "This ${VMname} exist"
+else
+    echo "This is WindowsFeature vm installing IIS"
+az vm create --resource-group $ResourceGroup -n $VMname --image $image --admin-username $username --admin-password $password \
+    --subnet $subnetname --vnet-name $vnetName --public-ip-sku Standard --generate-ssh-keys --no-wait
+az vm run-command invoke -g $ResourceGroup -n $VMname --command-id RunPowerShellScript \
+        --scripts 'Add-WindowsFeature Web-Server' 'Set-Content -Path "C:\inetpub\wwwroot\Default.html" -Value "This is the server $($env:computername) !"'
+fi
+
+#Create Azure Bastion
+az network public-ip create   -n $vnetName-Bastion-PIP -g contoso --allocation-method Static --sku Standard
+az network bastion create --location $location --name $vnetName-Bastion --public-ip-address $vnetName-Bastion-PIP -g $ResourceGroup --vnet-name $vnetName
+
+
+#Create Linux vm
+if [[ $(az vm show --resource-group $ResourceGroup -n $VMname --query "*.osDisk.osType" | sed 's/[][", ]//g') = Linux ]]; then
+    echo "This is Linux vm"
+az vm run-command invoke -g $ResourceGroup -n $VMname --command-id RunShellScript --scripts "apt-get update && apt-get install -y nginx"
+else
+    echo "This is WindowsFeature vm"
+fi
+
+echo "Opening port 80"
+az vm open-port --port 80 -g $ResourceGroup --name $VMname
+az vm list-ip-addresses -g $ResourceGroup  -n $VMname --query "[].virtualMachine.[*.publicIpAddresses]"
+
+# VPN Gateway
+#az network vnet-gateway show -g contoso -n CoreServices-GW
+if [[ $(az network vnet-gateway show -g $ResourceGroup -n $vnetName-GW --query "name" | sed 's/[][", ]//g') = $vnetName-GW ]]; then
+    echo "VPN Gateway ${vnetName-GW} exits"
+else
+az network public-ip create   -n $vnetName-GWIP   -g contoso --allocation-method Dynamic
+echo "creating VPN gateway ${vnetName-GW}"
+az network vnet-gateway create -n $vnetName-GW -l $location --public-ip-address $vnetName-GWIP -g contoso --vnet CoreServices --gateway-type ExpressRoute --sku Standard
+fi

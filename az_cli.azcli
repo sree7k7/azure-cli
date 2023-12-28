@@ -1,0 +1,66 @@
+az vm create --resource-group $ResourceGroup --name linuxvm --image Win2022Datacenter  --custom-data config.txt --admin-username demousr --admin-password "AzurePassword@123"
+
+#Get the details for the currently logged-in user.
+az ad signed-in-user show
+
+#Available vms
+az vm list-sizes --location "CentralIndia"
+
+#list locations
+az account list-locations -o table
+
+# list resource group
+az group list --query "[].name"
+
+# create ResourceGroup
+ResourceGroup=contosoRG
+az group create --name $ResourceGroup --location "NorthEurope"
+
+# Delete ResourceGroup
+az group delete -g "contosoRG"
+az group delete -g "aws-azure-bgp" -y --no-wait
+
+# Create vnet
+az network vnet create --name CoreServicesVnet --resource-group $ResourceGroup --address-prefixes 10.0.0.0/16
+
+# Create GatewaySubnet and Subnet
+az network vnet subnet create -g $ResourceGroup --vnet-name CoreServicesVnet -n GatewaySubnet --address-prefixes 10.0.1.0/24
+az network vnet subnet create -g $ResourceGroup --vnet-name CoreServicesVnet -n SubnetB --address-prefixes 10.0.2.0/24
+
+# Delete Vnet
+az network vnet delete --name cli-network -g cli-grp
+
+# Create VM
+az vm create --name "appvm" --resource-group "cli-grp" --admin-username "demousr" --image "Win2019Datacenter" --size "Standard_DS2_v2" --subnet "SubnetA" --vnet-name "CoreServicesVnet" --public-ip-sku Standard
+
+# Get vm osType
+az vm create --resource-group cli-grp --name appvm2 --image Win2022Datacenter --public-ip-sku Standard --admin-username demousr
+az network vnet subnet create -g MyResourceGroup --vnet-name MyVnet -n MySubnet \
+    --address-prefixes 10.0.0.0/24 --network-security-group MyNsg --route-table MyRouteTable
+
+# Run command
+az vm run-command invoke  --command-id RunPowerShellScript --name Vnet2 -g contosoRGTwo \
+    --scripts 'Add-WindowsFeature Web-Server' 'Set-Content -Path "C:\inetpub\wwwroot\Default.html" -Value "This is the server $($env:computername) !"'
+
+# Get Subscription ID
+az account list \
+   --refresh \
+   --query "[?contains(name, 'Concierge Subscription')].id" \
+   --output table
+
+# set subcription
+az account set --subscription {your subscription ID}
+
+
+### ------ Azure DevOps ------
+az extension add --name azure-devops
+az devops configure --defaults organization=https://dev.azure.com/contoso project=ContosoWebApp
+
+# crate project
+az devops project create --name contoso --visibility private --source-control git
+
+# delete Azure DevOps project
+project=contoso
+projectid=$(az devops project show --project $project --query "id" | sed 's/[][ ", ]//g')
+echo $projectid
+az devops project delete --id $projectid -y
